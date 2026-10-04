@@ -1,0 +1,2473 @@
+{
+  "name": "Aprovação de Pagamentos no Slack — Portfólio",
+  "nodes": [
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://slack.com/api/chat.postMessage",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "slackApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n{\n  \"channel\": $json.solicitanteId,\n  \"text\": \"⚠️ Formulário com dados inválidos — corrija e reenvie.\",\n  \"blocks\": [\n    {\n      \"type\": \"section\",\n      \"text\": {\n        \"type\": \"mrkdwn\",\n        \"text\": \"⚠️ *Seu formulário contém dados inválidos*\\nCorrija os campos abaixo e reenvie o formulário com `/pagamento-ativa`.\"\n      }\n    },\n    { \"type\": \"divider\" },\n    {\n      \"type\": \"section\",\n      \"text\": {\n        \"type\": \"mrkdwn\",\n        \"text\": Object.values($json._validationErrors).map(e => \"• \" + e).join(\"\\n\")\n      }\n    },\n    {\n      \"type\": \"context\",\n      \"elements\": [\n        { \"type\": \"mrkdwn\", \"text\": \"ℹ️ O formulário *não foi enviado*. Nenhuma solicitação foi registrada.\" }\n      ]\n    }\n  ]\n}\n}}",
+        "options": {}
+      },
+      "id": "a501c6b8-473a-55e2-a3f8-5936c7b6dcd2",
+      "name": "Notificar Solicitante - Erro de Validação",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        208,
+        4736
+      ],
+      "notesInFlow": true,
+      "onError": "continueRegularOutput",
+      "notes": "Usado quando a validação falha. Como o Webhook responde onReceived, não dá para retornar erro inline no modal; este nó avisa o solicitante por DM e o fluxo não segue para Sheets/aprovação."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json._hasErrors }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "fd4ded55-2b6b-5d96-bff8-6702e73d7555",
+      "name": "Validação OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -16,
+        4640
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const decisao = $('Extrair Decisão (Aprovado/Negado)').item.json;\nconst row = $input.item.json;\n\nconst anexo = row['Anexo'] || '';\nconst anexoTexto = String(anexo || '').split(',').map(function(u) {\n  u = String(u || '').trim();\n  if (!u) return '';\n  return /^https?:\\/\\//.test(u) ? '• <' + u + '|Ver arquivo>' : '• Arquivo `' + u + '`';\n}).filter(Boolean).join('\\n');\n\nreturn [{\n  json: {\n    protocolo: decisao.protocolo,\n    gestorId: decisao.gestorId,\n    gestorNome: decisao.gestorNome,\n    decisao: decisao.decisao,\n    responseUrl: decisao.responseUrl,\n    dataDecisao: decisao.dataDecisao,\n    status: decisao.status,\n    motivoNegacao: decisao.motivoNegacao || '',\n\n    razaoSocial: row['Razão Social '] || row['Razão Social'] || '',\n    cnpjCpf: row['CNPJ/CPF'] || '',\n    valor: row['Valor'] || '',\n    vencimento: row['Vencimento'] || '',\n    formaPagamento: row['Forma de Pagamento'] || '',\n    codigoBoleto: row['Código de barras do boleto'] || '',\n    chavePix: row['Chave PIX'] || '',\n    tipoChavePix: row['Tipo de Chave PIX'] || '',\n    dadosBancarios: row['Dados Bancários'] || row['Dados bancários'] || '',\n    observacoes: row['Observações'] || '',\n    solicitanteId: row['Solicitante ID'] || '',\n    solicitanteNome: row['Quem enviou'] || '',\n    departamento: row['Departamento'] || '',\n    anexo: anexo,\n    anexoTexto: anexoTexto,\n    dataEnvio: row['Data e hora'] || '',\n    pagamento: row['Pagamento'] || '',\n    anexoDrive: row['Anexo no Drive'] || '',\n    rowNumber: row['row_number'] || row.row_number || ''\n  }\n}];"
+      },
+      "id": "e22f0540-d380-5cd5-ac5a-d6c3ef62c6c4",
+      "name": "Mesclar Decisão + Dados (Negado)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1552,
+        5424
+      ],
+      "notesInFlow": true,
+      "notes": "Prepara os dados da solicitação negada e preserva row_number para mover a linha da aba principal para a aba Negados."
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "CONFIGURE_SPREADSHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "CONFIGURE_MAIN_SHEET_ID",
+          "mode": "id"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "ID",
+              "lookupValue": "={{ $json.protocolo }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "b7de9412-1fba-5ddc-b4e3-97675428456e",
+      "name": "Buscar Dados no Sheets (Negado)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        1328,
+        5424
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const decisao = $('Extrair Decisão (Aprovado/Negado)').item.json;\nconst row = $input.item.json;\n\nconst anexo = row['Anexo'] || '';\nconst anexoTexto = String(anexo || '').split(',').map(function(u) {\n  u = String(u || '').trim();\n  if (!u) return '';\n  return /^https?:\\/\\//.test(u) ? '• <' + u + '|Ver arquivo>' : '• Arquivo `' + u + '`';\n}).filter(Boolean).join('\\n');\n\nreturn [{\n  json: {\n    protocolo: decisao.protocolo,\n    gestorId: decisao.gestorId,\n    gestorNome: decisao.gestorNome,\n    decisao: decisao.decisao,\n    responseUrl: decisao.responseUrl,\n    dataDecisao: decisao.dataDecisao,\n    status: decisao.status,\n    razaoSocial: row['Razão Social '] || row['Razão Social'] || '',\n    cnpjCpf: row['CNPJ/CPF'] || '',\n    valor: row['Valor'] || '',\n    vencimento: row['Vencimento'] || '',\n    formaPagamento: row['Forma de Pagamento'] || '',\n    codigoBoleto: row['Código de barras do boleto'] || '',\n    chavePix: row['Chave PIX'] || '',\n    tipoChavePix: row['Tipo de Chave PIX'] || '',\n    dadosBancarios: row['Dados Bancários'] || row['Dados bancários'] || '',\n    observacoes: row['Observações'] || '',\n    solicitanteId: row['Solicitante ID'] || '',\n    solicitanteNome: row['Quem enviou'] || '',\n    departamento: row['Departamento'] || '',\n    anexo: anexo,\n    anexoTexto: anexoTexto,\n    dataEnvio: row['Data e hora'] || ''\n  }\n}];"
+      },
+      "id": "a7d8bca5-483c-5386-ad7c-43a1802ce089",
+      "name": "Mesclar Decisão + Dados (Aprovado)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1328,
+        4368
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "CONFIGURE_SPREADSHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "CONFIGURE_MAIN_SHEET_ID",
+          "mode": "id"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "ID",
+              "lookupValue": "={{ $json.protocolo }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "ffc223d7-fa74-5d5e-9f1e-940c1dc32e82",
+      "name": "Buscar Dados no Sheets (Aprovado)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        1104,
+        4368
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.decisao }}",
+              "rightValue": "PROGRAMADO",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "61d6749c-30ff-5d7c-a6c0-3952fdfe1d04",
+      "name": "É Conclusão?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1104,
+        5328
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://slack.com/api/chat.postMessage",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "slackApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n{\n  \"channel\": $json.solicitanteId,\n  \"text\": \"📅 Seu pagamento foi programado — \" + $json.protocolo,\n  \"blocks\": [\n    {\n      \"type\": \"section\",\n      \"text\": {\n        \"type\": \"mrkdwn\",\n        \"text\": \"📅 *Seu pagamento foi programado com sucesso!*\"\n      }\n    },\n    { \"type\": \"divider\" },\n    {\n      \"type\": \"section\",\n      \"fields\": [\n        { \"type\": \"mrkdwn\", \"text\": \"*🏢 Fornecedor*\\n\" + $json.razaoSocial },\n        { \"type\": \"mrkdwn\", \"text\": \"*💰 Valor programado*\\nR$ \" + $json.valor },\n        { \"type\": \"mrkdwn\", \"text\": \"*📅 Data da programação*\\n\" + $json.dataConclusao },\n        { \"type\": \"mrkdwn\", \"text\": \"*✅ Status*\\nPROGRAMADO\" }\n      ]\n    },\n    {\n      \"type\": \"context\",\n      \"elements\": [\n        { \"type\": \"mrkdwn\", \"text\": \"📋 Protocolo `\" + $json.protocolo + \"`\" }\n      ]\n    }\n  ]\n}\n}}",
+        "options": {}
+      },
+      "id": "c71496cb-e737-53fe-9f59-6b41172ceb88",
+      "name": "Avisar Solicitante - Pago",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        1776,
+        5040
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.responseUrl }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n(function() {\n  const d = $json;\n  const payBlocks = (function() {\n    if (d.formaPagamento === 'Boleto') return { type: 'section', fields: [{ type: 'mrkdwn', text: '*🔢 Código de Barras*\\n`' + (d.codigoBoleto || '—') + '`' }] };\n    if (d.formaPagamento === 'Pix') return { type: 'section', fields: [{ type: 'mrkdwn', text: '*🔑 Tipo de Chave PIX*\\n' + (d.tipoChavePix || '—') }, { type: 'mrkdwn', text: '*🗝️ Chave PIX*\\n`' + (d.chavePix || '—') + '`' }] };\n    if (d.formaPagamento === 'Transferencia') return { type: 'section', fields: [{ type: 'mrkdwn', text: '*🏦 Dados Bancários*\\n' + (d.dadosBancarios || '—') }] };\n    return null;\n  })();\n  return {\n    replace_original: true,\n    text: '📅 Pagamento programado — ' + d.protocolo,\n    blocks: [\n      { type: 'section', text: { type: 'mrkdwn', text: '📅 *Pagamento marcado como PROGRAMADO com sucesso!*\\nProgramado por <@' + d.financeiroId + '> em ' + d.dataConclusao + '.' } },\n      { type: 'divider' },\n      { type: 'section', fields: [\n        { type: 'mrkdwn', text: '*🏢 Fornecedor*\\n' + (d.razaoSocial || '—') },\n        { type: 'mrkdwn', text: '*🪪 CNPJ / CPF*\\n`' + (d.cnpjCpf || '—') + '`' },\n        { type: 'mrkdwn', text: '*💰 Valor programado*\\nR$ ' + (d.valor || '—') },\n        { type: 'mrkdwn', text: '*📅 Vencimento*\\n' + (d.vencimento || '—') },\n        { type: 'mrkdwn', text: '*👤 Solicitante*\\n' + (d.solicitanteId ? '<@' + d.solicitanteId + '>' : (d.solicitanteNome || '—')) },\n        { type: 'mrkdwn', text: '*✅ Aprovador*\\n' + (d.aprovadorNome || '—') }\n      ]},\n      { type: 'section', fields: [{ type: 'mrkdwn', text: '*💳 Forma de Pagamento*\\n' + (d.formaPagamento || '—') }, { type: 'mrkdwn', text: '*📌 Status*\\nPROGRAMADO' }] },\n      payBlocks,\n      d.observacoes ? { type: 'rich_text', elements: [{ type: 'rich_text_quote', elements: [{ type: 'text', text: 'Obs: ' + d.observacoes }] }] } : null,\n      (d.anexoTexto && d.anexoTexto.trim() !== '') ? { type: 'section', text: { type: 'mrkdwn', text: '*📎 Anexo(s)*\\n' + d.anexoTexto } } : null,\n      { type: 'context', elements: [{ type: 'mrkdwn', text: '📋 Protocolo `' + d.protocolo + '` · Histórico mantido · Botão removido · Solicitante <@' + d.solicitanteId + '> foi notificado.' }] }\n    ].filter(Boolean)\n  };\n})()\n}}",
+        "options": {}
+      },
+      "id": "92c0d769-e781-576d-be80-cbd31f741eaa",
+      "name": "Responder Financeiro - Concluído",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        1776,
+        4848
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "CONFIGURE_SPREADSHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "CONFIGURE_MAIN_SHEET_ID",
+          "mode": "id"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "ID": "={{ $json.protocolo }}",
+            "Quem concluiu": "={{ $json.financeiroNome }}",
+            "Data da Conclusão": "={{ $json.dataConclusao }}",
+            "Pagamento": "PROGRAMADO"
+          },
+          "matchingColumns": [
+            "ID"
+          ],
+          "schema": [
+            {
+              "id": "ID",
+              "displayName": "ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Razão Social ",
+              "displayName": "Razão Social ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "CNPJ/CPF",
+              "displayName": "CNPJ/CPF",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Valor",
+              "displayName": "Valor",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Vencimento",
+              "displayName": "Vencimento",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Forma de Pagamento",
+              "displayName": "Forma de Pagamento",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Dados bancários",
+              "displayName": "Dados bancários",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Código de barras do boleto",
+              "displayName": "Código de barras do boleto",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Chave PIX",
+              "displayName": "Chave PIX",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Tipo de Chave PIX",
+              "displayName": "Tipo de Chave PIX",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Observações",
+              "displayName": "Observações",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Aprovação",
+              "displayName": "Aprovação",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Anexo",
+              "displayName": "Anexo",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Quem enviou",
+              "displayName": "Quem enviou",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Solicitante ID",
+              "displayName": "Solicitante ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Data e hora",
+              "displayName": "Data e hora",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Aprovador",
+              "displayName": "Aprovador",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Data da Aprovação",
+              "displayName": "Data da Aprovação",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Quem concluiu",
+              "displayName": "Quem concluiu",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Data da Conclusão",
+              "displayName": "Data da Conclusão",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Pagamento",
+              "displayName": "Pagamento",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "ed886cc2-34e3-5b14-8411-5f3b46f2a185",
+      "name": "Atualizar Sheets - Concluído",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        1776,
+        5232
+      ],
+      "notesInFlow": true,
+      "notes": "Ao clicar em Marcar como Programado, atualiza a linha pelo ID e grava Quem concluiu, Data da Conclusão e Pagamento = PROGRAMADO."
+    },
+    {
+      "parameters": {
+        "jsCode": "const decisao = $('Extrair Decisão (Aprovado/Negado)').item.json;\nconst row = $input.item.json;\n\nconst anexo = row['Anexo'] || '';\nconst anexoTexto = String(anexo || '').split(',').map(function(u) {\n  u = String(u || '').trim();\n  if (!u) return '';\n  return /^https?:\\/\\//.test(u) ? '• <' + u + '|Ver arquivo>' : '• Arquivo `' + u + '`';\n}).filter(Boolean).join('\\n');\n\nreturn [{\n  json: {\n    protocolo: decisao.protocolo,\n    financeiroId: decisao.gestorId,\n    financeiroNome: decisao.gestorNome,\n    dataConclusao: (function(d) { return d.toLocaleString('pt-BR', {timeZone: 'America/Sao_Paulo', day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit', second:'2-digit'}); })(new Date()),\n    responseUrl: decisao.responseUrl,\n    status: 'PROGRAMADO',\n    razaoSocial: row['Razão Social '] || row['Razão Social'] || '',\n    cnpjCpf: row['CNPJ/CPF'] || '',\n    valor: row['Valor'] || '',\n    vencimento: row['Vencimento'] || '',\n    formaPagamento: row['Forma de Pagamento'] || '',\n    codigoBoleto: row['Código de barras do boleto'] || '',\n    chavePix: row['Chave PIX'] || '',\n    tipoChavePix: row['Tipo de Chave PIX'] || '',\n    dadosBancarios: row['Dados Bancários'] || row['Dados bancários'] || '',\n    observacoes: row['Observações'] || '',\n    solicitanteId: row['Solicitante ID'] || '',\n    solicitanteNome: row['Quem enviou'] || '',\n    aprovadorNome: row['Aprovador'] || '',\n    dataAprovacao: row['Data da Aprovação'] || '',\n    anexo: anexo,\n    anexoTexto: anexoTexto,\n    dataEnvio: row['Data e hora'] || ''\n  }\n}];"
+      },
+      "id": "5af36a99-f1e1-5ae4-abd9-e52a1246d8c4",
+      "name": "Mesclar Dados Conclusão",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1552,
+        5040
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "CONFIGURE_SPREADSHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "CONFIGURE_MAIN_SHEET_ID",
+          "mode": "id"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "ID",
+              "lookupValue": "={{ $json.protocolo }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "99a51145-6cab-5e75-9c43-9266c98dee81",
+      "name": "Buscar Dados no Sheets (Concluído)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        1328,
+        5040
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://slack.com/api/chat.postMessage",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "slackApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n(function() {\n  const d = $('Extrair Dados do Formulário').item.json;\n  return {\n    \"channel\": d.solicitanteId,\n    \"text\": \"📋 Solicitação enviada — \" + d.razaoSocial + \" · R$ \" + d.valor,\n    \"blocks\": [\n      {\n        \"type\": \"section\",\n        \"text\": {\n          \"type\": \"mrkdwn\",\n          \"text\": \"📋 *Solicitação Enviada com Sucesso*\\nSua solicitação foi registrada e encaminhada para aprovação de <@\" + d.aprovadorId + \">.\"\n        }\n      },\n      { \"type\": \"divider\" },\n      {\n        \"type\": \"section\",\n        \"fields\": [\n          { \"type\": \"mrkdwn\", \"text\": \"*🏢 Fornecedor*\\n\" + d.razaoSocial },\n          { \"type\": \"mrkdwn\", \"text\": \"*🪪 CNPJ / CPF*\\n`\" + d.cnpjCpf + \"`\" },\n          { \"type\": \"mrkdwn\", \"text\": \"*💰 Valor*\\nR$ \" + d.valor },\n          { \"type\": \"mrkdwn\", \"text\": \"*📅 Vencimento*\\n\" + d.vencimento }\n        ]\n      },\n      (d.formaPagamento === 'Boleto' ? {\n        \"type\": \"section\",\n        \"fields\": [\n          { \"type\": \"mrkdwn\", \"text\": \"*💳 Forma de Pagamento*\\nBoleto\" },\n          { \"type\": \"mrkdwn\", \"text\": \"*🔢 Código de Barras*\\n`\" + (d.codigoBoleto || '—') + \"`\" }\n        ]\n      } : d.formaPagamento === 'Pix' ? {\n        \"type\": \"section\",\n        \"fields\": [\n          { \"type\": \"mrkdwn\", \"text\": \"*💳 Forma de Pagamento*\\nPix\" },\n          { \"type\": \"mrkdwn\", \"text\": \"*🔑 Tipo de Chave PIX*\\n\" + (d.tipoChavePix || '—') },\n          { \"type\": \"mrkdwn\", \"text\": \"*🗝️ Chave PIX*\\n`\" + (d.chavePix || '—') + \"`\" }\n        ]\n      } : d.formaPagamento === 'Transferencia' ? {\n        \"type\": \"section\",\n        \"fields\": [\n          { \"type\": \"mrkdwn\", \"text\": \"*💳 Forma de Pagamento*\\nTransferência Bancária\" },\n          { \"type\": \"mrkdwn\", \"text\": \"*🏦 Dados Bancários*\\n\" + (d.dadosBancarios || '—') }\n        ]\n      } : {\n        \"type\": \"section\",\n        \"fields\": [\n          { \"type\": \"mrkdwn\", \"text\": \"*💳 Forma de Pagamento*\\n\" + d.formaPagamento }\n        ]\n      }),\n      (d.observacoes ? {\n        \"type\": \"rich_text\",\n        \"elements\": [\n          {\n            \"type\": \"rich_text_quote\",\n            \"elements\": [\n              { \"type\": \"text\", \"text\": \"Obs: \" + d.observacoes }\n            ]\n          }\n        ]\n      } : null),\n      {\n        \"type\": \"context\",\n        \"elements\": [\n          { \"type\": \"mrkdwn\", \"text\": \"📋 Protocolo `\" + d.protocolo + \"` · Você será notificado assim que houver uma decisão.\" }\n        ]\n      }\n    ].filter(b => b !== null)\n  };\n})()\n}}",
+        "options": {}
+      },
+      "id": "88291ff5-583a-50a8-96c9-520611391609",
+      "name": "Notificar Solicitante - Formulário Enviado",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        432,
+        4256
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "respondWith": "noData",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        544,
+        3824
+      ],
+      "id": "7a63f7cf-5ce1-52d3-96a6-9d9dd7f905f2",
+      "name": "ACK Slash Command /pagamento",
+      "notesInFlow": true,
+      "notes": "ACK imediato e sem corpo para o slash command /pagamento. Evita a mensagem visível {\"message\":\"Workflow was started\"}."
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.item.json;\n\nconst dataAprovacao = (function(ts) {\n  if (!ts) return '';\n  try {\n    const d = new Date(ts);\n    return d.toLocaleString('pt-BR', {\n      timeZone: 'America/Sao_Paulo',\n      day:'2-digit',\n      month:'2-digit',\n      year:'numeric',\n      hour:'2-digit',\n      minute:'2-digit',\n      second:'2-digit'\n    });\n  } catch(e) {\n    return ts;\n  }\n})(item.dataDecisao);\n\nconst observacoesNegado = [\n  item.observacoes || '',\n  item.motivoNegacao ? ('Motivo da reprovação: ' + item.motivoNegacao) : ''\n].filter(Boolean).join('\\n\\n');\n\nreturn [{\n  json: {\n    'ID': item.protocolo,\n    'Razão Social ': item.razaoSocial,\n    'CNPJ/CPF': item.cnpjCpf,\n    'Valor': item.valor,\n    'Vencimento': item.vencimento,\n    'Forma de Pagamento': item.formaPagamento,\n    'Dados bancários': item.dadosBancarios,\n    'Código de barras do boleto': item.codigoBoleto,\n    'Chave PIX': item.chavePix,\n    'Tipo de Chave PIX': item.tipoChavePix,\n    'Observações': observacoesNegado,\n    'Aprovação': 'NEGADO',\n    'Anexo': item.anexo,\n    'Quem enviou': item.solicitanteNome,\n    'Solicitante ID': item.solicitanteId,\n    'Data e hora': item.dataEnvio,\n    'Aprovador': item.gestorNome,\n    'Data da Aprovação': dataAprovacao,\n    'Quem concluiu': '',\n    'Data da Conclusão': '',\n    'Pagamento': '',\n    'Anexo no Drive': item.anexoDrive || '',\n\n    protocolo: item.protocolo,\n    rowNumber: item.rowNumber,\n    motivoNegacao: item.motivoNegacao || '',\n    gestorId: item.gestorId,\n    gestorNome: item.gestorNome,\n    responseUrl: item.responseUrl\n  }\n}];"
+      },
+      "id": "6c2ad0f6-3c58-5f1a-a63b-9a8abd7d40cd",
+      "name": "Preparar dados para Sheets (Negado)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1776,
+        5616
+      ],
+      "notesInFlow": true,
+      "notes": "Monta a linha completa para a aba Negados. O motivo da reprovação é acrescentado ao campo Observações."
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.item.json;\n\nreturn [{\n  json: {\n    'ID': item.protocolo,\n    'Aprovação': item.decisao,\n    'Aprovador': item.gestorNome,\n    'Data da Aprovação': (function(ts) { if (!ts) return ''; try { const d = new Date(ts); return d.toLocaleString('pt-BR', {timeZone: 'America/Sao_Paulo', day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit', second:'2-digit'}); } catch(e) { return ts; } })(item.dataDecisao),\n    protocolo: item.protocolo,\n    gestorId: item.gestorId,\n    gestorNome: item.gestorNome,\n    decisao: item.decisao,\n    dataDecisao: item.dataDecisao,\n    responseUrl: item.responseUrl\n  }\n}];"
+      },
+      "id": "344a8ea0-d255-5a25-9740-bcfdc15a6a61",
+      "name": "Preparar dados para Sheets (Aprovado)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1552,
+        3792
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "CONFIGURE_SPREADSHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "CONFIGURE_MAIN_SHEET_ID",
+          "mode": "id"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "ID": "={{ $json[\"ID\"] }}",
+            "Razão Social ": "={{ $json[\"Razão Social \"] }}",
+            "CNPJ/CPF": "={{ $json[\"CNPJ/CPF\"] }}",
+            "Valor": "={{ $json[\"Valor\"] }}",
+            "Vencimento": "={{ $json[\"Vencimento\"] }}",
+            "Forma de Pagamento": "={{ $json[\"Forma de Pagamento\"] }}",
+            "Código de barras do boleto": "={{ $json[\"Código de barras do boleto\"] }}",
+            "Chave PIX": "={{ $json[\"Chave PIX\"] }}",
+            "Tipo de Chave PIX": "={{ $json[\"Tipo de Chave PIX\"] }}",
+            "Observações": "={{ $json[\"Observações\"] }}",
+            "Aprovação": "={{ $json[\"Aprovação\"] }}",
+            "Anexo": "={{ $json[\"Anexo\"] }}",
+            "Quem enviou": "={{ $json[\"Quem enviou\"] }}",
+            "Data e hora": "={{ $json[\"Data e hora\"] }}",
+            "Aprovador": "={{ $json[\"Aprovador\"] }}",
+            "Data da Aprovação": "={{ $json[\"Data da Aprovação\"] }}",
+            "Quem concluiu": "={{ $json[\"Quem concluiu\"] }}",
+            "Data da Conclusão": "={{ $json[\"Data da Conclusão\"] }}",
+            "Dados bancários": "={{ $json[\"Dados Bancários\"] }}",
+            "Solicitante ID": "={{ $json[\"Solicitante ID\"] }}",
+            "Pagamento": "={{ $json[\"Pagamento\"] }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "ID",
+              "displayName": "ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Razão Social ",
+              "displayName": "Razão Social ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "CNPJ/CPF",
+              "displayName": "CNPJ/CPF",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Valor",
+              "displayName": "Valor",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Vencimento",
+              "displayName": "Vencimento",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Forma de Pagamento",
+              "displayName": "Forma de Pagamento",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Dados bancários",
+              "displayName": "Dados bancários",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Código de barras do boleto",
+              "displayName": "Código de barras do boleto",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Chave PIX",
+              "displayName": "Chave PIX",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Tipo de Chave PIX",
+              "displayName": "Tipo de Chave PIX",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Observações",
+              "displayName": "Observações",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Aprovação",
+              "displayName": "Aprovação",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Anexo",
+              "displayName": "Anexo",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Quem enviou",
+              "displayName": "Quem enviou",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Solicitante ID",
+              "displayName": "Solicitante ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Data e hora",
+              "displayName": "Data e hora",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Aprovador",
+              "displayName": "Aprovador",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Data da Aprovação",
+              "displayName": "Data da Aprovação",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Quem concluiu",
+              "displayName": "Quem concluiu",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Data da Conclusão",
+              "displayName": "Data da Conclusão",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Pagamento",
+              "displayName": "Pagamento",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "fa9b91d3-9cfd-55ec-8fa0-cde9cc3640e1",
+      "name": "Gravar Formulário no Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        656,
+        4640
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.item.json;\n\nreturn [{\n  json: {\n    'ID': item.protocolo,\n    'Razão Social ': item.razaoSocial,\n    'CNPJ/CPF': item.cnpjCpf,\n    'Valor': item.valor,\n    'Vencimento': item.vencimento,\n    'Forma de Pagamento': item.formaPagamento,\n    'Dados Bancários': item.dadosBancarios,\n    'Código de barras do boleto': item.codigoBoleto,\n    'Chave PIX': item.chavePix,\n    'Tipo de Chave PIX': item.tipoChavePix,\n    'Observações': item.observacoes,\n    'Aprovação': '',\n    'Anexo': (item.anexoIds || []).join(', '),\n    'Quem enviou': item.solicitanteNome,\n    'Solicitante ID': item.solicitanteId,\n    'Data e hora': item.timestamp || '',\n    'Aprovador': '',\n    'Data da Aprovação': '',\n    'Quem concluiu': '',\n    'Data da Conclusão': '',\n    'Pagamento': ''\n  }\n}];"
+      },
+      "id": "24eef0f0-f489-5435-9996-93047a15dd55",
+      "name": "Preparar dados iniciais para Sheets",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        432,
+        4640
+      ],
+      "notesInFlow": true,
+      "notes": "A coluna Aprovador fica vazia na criação. Ela será preenchida somente quando alguém aprovar ou reprovar."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://slack.com/api/views.open",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "slackApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": []
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n{\n  \"trigger_id\": $('Webhook - Slash Command /pagamento').item.json.body.trigger_id,\n  \"view\": {\n    \"type\": \"modal\",\n    \"callback_id\": \"pagamento_modal\",\n    \"title\": { \"type\": \"plain_text\", \"text\": \"Solicitação de Pagamento\" },\n    \"submit\": { \"type\": \"plain_text\", \"text\": \"Enviar\" },\n    \"close\": { \"type\": \"plain_text\", \"text\": \"Cancelar\" },\n    \"blocks\": [\n      {\n        \"type\": \"section\",\n        \"text\": { \"type\": \"mrkdwn\", \"text\": \"*Preencha os dados da solicitação de pagamento abaixo.*\\nCampos opcionais devem ser preenchidos conforme a forma de pagamento escolhida. O envio de pelo menos um anexo é obrigatório.\" }\n      },\n      { \"type\": \"divider\" },\n      {\n        \"type\": \"input\",\n        \"block_id\": \"razao_social\",\n        \"label\": { \"type\": \"plain_text\", \"text\": \"Razão Social do Fornecedor\" },\n        \"element\": { \"type\": \"plain_text_input\", \"action_id\": \"razao_social_input\", \"placeholder\": { \"type\": \"plain_text\", \"text\": \"Razão social do fornecedor\" } }\n      },\n      {\n        \"type\": \"input\",\n        \"block_id\": \"cnpj_cpf\",\n        \"label\": { \"type\": \"plain_text\", \"text\": \"CNPJ / CPF\" },\n        \"element\": { \"type\": \"plain_text_input\", \"action_id\": \"cnpj_cpf_input\", \"placeholder\": { \"type\": \"plain_text\", \"text\": \"CNPJ ou CPF do fornecedor\" } }\n      },\n      {\n        \"type\": \"input\",\n        \"block_id\": \"valor\",\n        \"label\": { \"type\": \"plain_text\", \"text\": \"Valor a Pagar (R$)\" },\n        \"element\": { \"type\": \"plain_text_input\", \"action_id\": \"valor_input\", \"placeholder\": { \"type\": \"plain_text\", \"text\": \"Ex: 1500.00\" } }\n      },\n      {\n        \"type\": \"input\",\n        \"block_id\": \"vencimento\",\n        \"label\": { \"type\": \"plain_text\", \"text\": \"Vencimento (D-1)\" },\n        \"element\": { \"type\": \"datepicker\", \"action_id\": \"vencimento_input\", \"placeholder\": { \"type\": \"plain_text\", \"text\": \"Selecionar data\" } }\n      },\n      { \"type\": \"divider\" },\n      {\n        \"type\": \"input\",\n        \"block_id\": \"forma_pagamento\",\n        \"label\": { \"type\": \"plain_text\", \"text\": \"Forma de Pagamento\" },\n        \"element\": {\n          \"type\": \"static_select\",\n          \"action_id\": \"forma_pagamento_input\",\n          \"placeholder\": { \"type\": \"plain_text\", \"text\": \"Selecionar opção\" },\n          \"options\": [\n            { \"text\": { \"type\": \"plain_text\", \"text\": \"Boleto\" }, \"value\": \"Boleto\" },\n            { \"text\": { \"type\": \"plain_text\", \"text\": \"Pix\" }, \"value\": \"Pix\" },\n            { \"text\": { \"type\": \"plain_text\", \"text\": \"Transferência Bancária\" }, \"value\": \"Transferencia\" }\n          ]\n        }\n      },\n      {\n        \"type\": \"input\",\n        \"block_id\": \"codigo_boleto\",\n        \"optional\": true,\n        \"label\": { \"type\": \"plain_text\", \"text\": \"Código de Barras do Boleto (se Boleto)\" },\n        \"element\": { \"type\": \"plain_text_input\", \"action_id\": \"codigo_boleto_input\", \"placeholder\": { \"type\": \"plain_text\", \"text\": \"Preencha se a forma de pagamento for Boleto\" } }\n      },\n      {\n        \"type\": \"input\",\n        \"block_id\": \"tipo_chave_pix\",\n        \"optional\": true,\n        \"label\": { \"type\": \"plain_text\", \"text\": \"Tipo de Chave PIX (se PIX)\" },\n        \"element\": {\n          \"type\": \"static_select\",\n          \"action_id\": \"tipo_chave_pix_input\",\n          \"placeholder\": { \"type\": \"plain_text\", \"text\": \"Selecione o tipo de chave\" },\n          \"options\": [\n            { \"text\": { \"type\": \"plain_text\", \"text\": \"Celular\" }, \"value\": \"Celular\" },\n            { \"text\": { \"type\": \"plain_text\", \"text\": \"CPF\" }, \"value\": \"CPF\" },\n            { \"text\": { \"type\": \"plain_text\", \"text\": \"E-mail\" }, \"value\": \"Email\" },\n            { \"text\": { \"type\": \"plain_text\", \"text\": \"Aleatória\" }, \"value\": \"Aleatoria\" },\n            { \"text\": { \"type\": \"plain_text\", \"text\": \"CNPJ\" }, \"value\": \"CNPJ\" }\n          ]\n        }\n      },\n      {\n        \"type\": \"input\",\n        \"block_id\": \"chave_pix\",\n        \"optional\": true,\n        \"label\": { \"type\": \"plain_text\", \"text\": \"Chave PIX (se PIX)\" },\n        \"element\": { \"type\": \"plain_text_input\", \"action_id\": \"chave_pix_input\", \"placeholder\": { \"type\": \"plain_text\", \"text\": \"Informe a chave PIX\" } }\n      },\n      {\n        \"type\": \"input\",\n        \"block_id\": \"dados_bancarios\",\n        \"optional\": true,\n        \"label\": { \"type\": \"plain_text\", \"text\": \"Dados Bancários (se Transferência)\" },\n        \"element\": { \"type\": \"plain_text_input\", \"action_id\": \"dados_bancarios_input\", \"multiline\": true, \"placeholder\": { \"type\": \"plain_text\", \"text\": \"Banco, agência, conta e tipo (corrente/poupança)\" } }\n      },\n      { \"type\": \"divider\" },\n      {\n        \"type\": \"input\",\n        \"block_id\": \"aprovador\",\n        \"label\": { \"type\": \"plain_text\", \"text\": \"Head Responsável pela Aprovação\" },\n        \"element\": {\n          \"type\": \"radio_buttons\",\n          \"action_id\": \"aprovador_input\",\n          \"options\": [\n            {\n              \"text\": { \"type\": \"plain_text\", \"text\": \"Aprovador Exemplo A\" },\n              \"value\": \"UDEMO000003\"\n            },\n            {\n              \"text\": { \"type\": \"plain_text\", \"text\": \"Aprovador Exemplo B\" },\n              \"value\": \"UDEMO000002\"\n            },\n            {\n              \"text\": { \"type\": \"plain_text\", \"text\": \"Aprovador Exemplo C\" },\n              \"value\": \"UDEMO000001\"\n            }\n          ]\n        }\n      },\n      {\n        \"type\": \"input\",\n        \"block_id\": \"observacoes\",\n        \"optional\": true,\n        \"label\": { \"type\": \"plain_text\", \"text\": \"Observações\" },\n        \"element\": { \"type\": \"plain_text_input\", \"action_id\": \"observacoes_input\", \"multiline\": true, \"placeholder\": { \"type\": \"plain_text\", \"text\": \"Informações adicionais relevantes\" } }\n      },\n      {\n        \"type\": \"input\",\n        \"block_id\": \"anexo\",\n        \"optional\": false,\n        \"label\": { \"type\": \"plain_text\", \"text\": \"Anexo obrigatório\" },\n        \"element\": { \"type\": \"file_input\", \"action_id\": \"anexo_input\", \"max_files\": 10 }\n      }\n    ]\n  }\n}\n}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        768,
+        3824
+      ],
+      "id": "4f7ebd19-7c6a-5b6c-a152-70cb97508feb",
+      "name": "HTTP Request",
+      "notesInFlow": true,
+      "onError": "continueRegularOutput",
+      "notes": "O formulário exige pelo menos um anexo. Os campos de pagamento continuam condicionais à forma escolhida."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://slack.com/api/chat.postMessage",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "slackApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n{\n  \"channel\": $json.solicitanteId,\n  \"text\": \"❌ Sua solicitação foi reprovada — \" + $json.protocolo,\n  \"blocks\": [\n    {\n      \"type\": \"section\",\n      \"text\": {\n        \"type\": \"mrkdwn\",\n        \"text\": \"❌ *Sua solicitação foi reprovada.*\\nReprovado por <@\" + $json.gestorId + \"> em \" + new Date($json.dataDecisao).toLocaleString('pt-BR', {timeZone: 'America/Sao_Paulo'}) + \".\"\n      }\n    },\n    {\n      \"type\": \"section\",\n      \"fields\": [\n        { \"type\": \"mrkdwn\", \"text\": \"*🏢 Fornecedor*\\n\" + $json.razaoSocial },\n        { \"type\": \"mrkdwn\", \"text\": \"*💰 Valor*\\nR$ \" + $json.valor }\n      ]\n    },\n    {\n      \"type\": \"section\",\n      \"text\": {\n        \"type\": \"mrkdwn\",\n        \"text\": \"*💬 Motivo informado pelo aprovador*\\n\" + ($json.motivoNegacao || \"Motivo não informado.\")\n      }\n    },\n    {\n      \"type\": \"context\",\n      \"elements\": [\n        { \"type\": \"mrkdwn\", \"text\": \"📋 Protocolo `\" + $json.protocolo + \"` · Corrija os pontos indicados antes de abrir uma nova solicitação.\" }\n      ]\n    }\n  ]\n}\n}}",
+        "options": {}
+      },
+      "id": "2ec7a177-aa17-5c86-9ef6-990f22633eb5",
+      "name": "Avisar Solicitante - Negado",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        1776,
+        5424
+      ],
+      "notesInFlow": true,
+      "onError": "continueRegularOutput",
+      "notes": "Notifica o solicitante sobre a reprovação e inclui obrigatoriamente o comentário informado pelo aprovador."
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "CONFIGURE_SPREADSHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "CONFIGURE_REJECTED_SHEET_ID",
+          "mode": "id"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "ID": "={{ $json[\"ID\"] }}",
+            "Razão Social ": "={{ $json[\"Razão Social \"] }}",
+            "CNPJ/CPF": "={{ $json[\"CNPJ/CPF\"] }}",
+            "Valor": "={{ $json[\"Valor\"] }}",
+            "Vencimento": "={{ $json[\"Vencimento\"] }}",
+            "Forma de Pagamento": "={{ $json[\"Forma de Pagamento\"] }}",
+            "Dados bancários": "={{ $json[\"Dados bancários\"] }}",
+            "Código de barras do boleto": "={{ $json[\"Código de barras do boleto\"] }}",
+            "Chave PIX": "={{ $json[\"Chave PIX\"] }}",
+            "Tipo de Chave PIX": "={{ $json[\"Tipo de Chave PIX\"] }}",
+            "Observações": "={{ $json[\"Observações\"] }}",
+            "Aprovação": "NEGADO",
+            "Anexo": "={{ $json[\"Anexo\"] }}",
+            "Quem enviou": "={{ $json[\"Quem enviou\"] }}",
+            "Solicitante ID": "={{ $json[\"Solicitante ID\"] }}",
+            "Data e hora": "={{ $json[\"Data e hora\"] }}",
+            "Aprovador": "={{ $json[\"Aprovador\"] }}",
+            "Data da Aprovação": "={{ $json[\"Data da Aprovação\"] }}",
+            "Quem concluiu": "",
+            "Data da Conclusão": "",
+            "Pagamento": "",
+            "Anexo no Drive": "={{ $json[\"Anexo no Drive\"] }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "ID",
+              "displayName": "ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Razão Social ",
+              "displayName": "Razão Social ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "CNPJ/CPF",
+              "displayName": "CNPJ/CPF",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Valor",
+              "displayName": "Valor",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Vencimento",
+              "displayName": "Vencimento",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Forma de Pagamento",
+              "displayName": "Forma de Pagamento",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Dados bancários",
+              "displayName": "Dados bancários",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Código de barras do boleto",
+              "displayName": "Código de barras do boleto",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Chave PIX",
+              "displayName": "Chave PIX",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Tipo de Chave PIX",
+              "displayName": "Tipo de Chave PIX",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Observações",
+              "displayName": "Observações",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Aprovação",
+              "displayName": "Aprovação",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Anexo",
+              "displayName": "Anexo",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Quem enviou",
+              "displayName": "Quem enviou",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Solicitante ID",
+              "displayName": "Solicitante ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Data e hora",
+              "displayName": "Data e hora",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Aprovador",
+              "displayName": "Aprovador",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Data da Aprovação",
+              "displayName": "Data da Aprovação",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Quem concluiu",
+              "displayName": "Quem concluiu",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Data da Conclusão",
+              "displayName": "Data da Conclusão",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Pagamento",
+              "displayName": "Pagamento",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Anexo no Drive",
+              "displayName": "Anexo no Drive",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "303d943c-7eda-5e9d-93d1-ee2a0ca4448b",
+      "name": "Gravar no Google Sheets (Negado)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        2000,
+        5616
+      ],
+      "notesInFlow": true,
+      "notes": "Insere a solicitação reprovada na aba Negados antes de remover a linha da aba Respostas do formulário."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://slack.com/api/chat.postMessage",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "slackApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n{\n  \"channel\": $json.solicitanteId,\n  \"text\": \"✅ Sua solicitação foi aprovada — \" + $json.protocolo,\n  \"blocks\": [\n    {\n      \"type\": \"section\",\n      \"text\": {\n        \"type\": \"mrkdwn\",\n        \"text\": \"✅ *Sua solicitação foi aprovada!*\\nAprovado por <@\" + $json.gestorId + \"> em \" + new Date($json.dataDecisao).toLocaleString('pt-BR', {timeZone: 'America/Sao_Paulo'}) + \".\"\n      }\n    },\n    {\n      \"type\": \"section\",\n      \"fields\": [\n        { \"type\": \"mrkdwn\", \"text\": \"*🏢 Fornecedor*\\n\" + $json.razaoSocial },\n        { \"type\": \"mrkdwn\", \"text\": \"*💰 Valor*\\nR$ \" + $json.valor }\n      ]\n    },\n    {\n      \"type\": \"context\",\n      \"elements\": [\n        { \"type\": \"mrkdwn\", \"text\": \"📋 Protocolo `\" + $json.protocolo + \"` · O time de contas a pagar foi notificado e irá efetuar o pagamento em breve.\" }\n      ]\n    }\n  ]\n}\n}}",
+        "options": {}
+      },
+      "id": "71d3c15a-666c-54fd-a8cc-3ee14ddeb213",
+      "name": "Avisar Solicitante - Aprovado",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        1552,
+        3984
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "CONFIGURE_SPREADSHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "CONFIGURE_MAIN_SHEET_ID",
+          "mode": "id"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "ID": "={{ $json[\"ID\"] }}",
+            "Aprovação": "={{ $json[\"Aprovação\"] }}",
+            "Aprovador": "={{ $json[\"Aprovador\"] }}",
+            "Data da Aprovação": "={{ $json[\"Data da Aprovação\"] }}"
+          },
+          "matchingColumns": [
+            "ID"
+          ],
+          "schema": [
+            {
+              "id": "ID",
+              "displayName": "ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Razão Social ",
+              "displayName": "Razão Social ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "CNPJ/CPF",
+              "displayName": "CNPJ/CPF",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Valor",
+              "displayName": "Valor",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Vencimento",
+              "displayName": "Vencimento",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Forma de Pagamento",
+              "displayName": "Forma de Pagamento",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Dados bancários",
+              "displayName": "Dados bancários",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Código de barras do boleto",
+              "displayName": "Código de barras do boleto",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Chave PIX",
+              "displayName": "Chave PIX",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Tipo de Chave PIX",
+              "displayName": "Tipo de Chave PIX",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Observações",
+              "displayName": "Observações",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Aprovação",
+              "displayName": "Aprovação",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Anexo",
+              "displayName": "Anexo",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Quem enviou",
+              "displayName": "Quem enviou",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Solicitante ID",
+              "displayName": "Solicitante ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Data e hora",
+              "displayName": "Data e hora",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Aprovador",
+              "displayName": "Aprovador",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Data da Aprovação",
+              "displayName": "Data da Aprovação",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Quem concluiu",
+              "displayName": "Quem concluiu",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Data da Conclusão",
+              "displayName": "Data da Conclusão",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Pagamento",
+              "displayName": "Pagamento",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "05eb725f-546c-5eff-96be-301ba5ba6ff6",
+      "name": "Gravar no Google Sheets (Aprovado)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        1776,
+        3792
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.decisao }}",
+              "rightValue": "APROVADO",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "6de21d6c-be58-58e8-b251-0a593f7f897f",
+      "name": "Aprovado ou Negado?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        880,
+        4848
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const entrada = $input.item.json || {};\nconst payload = entrada.payload || {};\nconst action = payload.actions?.[0] || {};\nconst userId = payload.user?.id || entrada.userId || '';\n\nconst actionId =\n  entrada.actionId ||\n  action.action_id ||\n  '';\n\nconst protocolo =\n  entrada.actionValue ||\n  action.value ||\n  '';\n\nconst responseUrl =\n  entrada.response_url ||\n  payload.response_url ||\n  '';\n\nconst motivoNegacao = String(\n  entrada.motivoNegacao ||\n  payload.state?.values\n    ?.motivo_negacao_msg\n    ?.motivo_negacao_input\n    ?.value ||\n  ''\n).trim();\n\nlet decisao;\nif (actionId === 'aprovar_pagamento') decisao = 'APROVADO';\nelse if (actionId === 'negar_pagamento') decisao = 'NEGADO';\nelse if (actionId === 'concluir_pagamento') decisao = 'PROGRAMADO';\nelse decisao = 'DESCONHECIDO';\n\nconst nomesAprovacao = {\n  'UDEMO000003': 'Aprovador Exemplo A',\n  'UDEMO000002': 'Aprovador Exemplo B',\n  'UDEMO000001': 'Aprovador Exemplo C'\n};\n\nconst nomesConclusao = {\n  'UDEMO000002': 'Aprovador Exemplo B',\n  'UDEMO000004': 'Financeiro Exemplo D'\n};\n\nconst nomeFallback =\n  payload.user?.real_name ||\n  payload.user?.realName ||\n  payload.user?.name ||\n  payload.user?.username ||\n  entrada.userName ||\n  userId;\n\nconst gestorNome = actionId === 'concluir_pagamento'\n  ? (nomesConclusao[userId] || nomeFallback)\n  : (nomesAprovacao[userId] || nomeFallback);\n\nreturn [{\n  json: {\n    protocolo,\n    gestorId: userId,\n    gestorNome,\n    decisao,\n    actionId,\n    responseUrl,\n    motivoNegacao,\n    dataDecisao: new Date().toISOString(),\n    status: decisao\n  }\n}];"
+      },
+      "id": "e7d698ae-93a5-5136-8518-0c12cf61604a",
+      "name": "Extrair Decisão (Aprovado/Negado)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -16,
+        4944
+      ],
+      "notesInFlow": true,
+      "notes": "Aprovação/reprovação continuam iguais. O botão do Contas a Pagar gera a decisão PROGRAMADO. Responsável 2 e Natal são reconhecidos como pagadores."
+    },
+    {
+      "parameters": {
+        "jsCode": "const payload = $input.item.json.payload;\nconst values = payload.view?.state?.values || payload.state?.values || {};\n\nconst razaoSocial = (values?.razao_social?.razao_social_input?.value || '').trim();\nconst cnpjCpf = (values?.cnpj_cpf?.cnpj_cpf_input?.value || '').trim();\nconst valor = (values?.valor?.valor_input?.value || '').trim();\nconst vencimento = values?.vencimento?.vencimento_input?.selected_date || '';\nconst formaPagamento = values?.forma_pagamento?.forma_pagamento_input?.selected_option?.value || '';\nconst codigoBoleto = (values?.codigo_boleto?.codigo_boleto_input?.value || '').trim();\nconst tipoChavePix = values?.tipo_chave_pix?.tipo_chave_pix_input?.selected_option?.value || '';\nconst chavePixOriginal = (values?.chave_pix?.chave_pix_input?.value || '').trim();\nconst dadosBancarios = (values?.dados_bancarios?.dados_bancarios_input?.value || '').trim();\nconst observacoes = (values?.observacoes?.observacoes_input?.value || '').trim();\nconst aprovadorOriginalId = values?.aprovador?.aprovador_input?.selected_option?.value || '';\nconst aprovadorId = aprovadorOriginalId;\nconst rawAnexos = values?.anexo?.anexo_input?.files || values?.anexo?.anexo_input?.selected_files || [];\n\nfunction normalizeFile(f) {\n  if (!f) return null;\n  if (typeof f === 'string') {\n    return { id: f, name: '', user: payload.user?.id || '', permalink: '', permalink_public: '' };\n  }\n  return {\n    id: f.id || f.file_id || '',\n    name: f.name || f.title || f.filename || '',\n    user: f.user || f.user_id || payload.user?.id || '',\n    // IMPORTANTE: usar o permalink nativo do Slack, formato workspace-exemplo.slack.com/files/...\n    // Não usar permalink_public/slack-files.com porque trouxe problema de permissão/arquivo não encontrado.\n    permalink: f.permalink || '',\n    permalink_public: f.permalink_public || ''\n  };\n}\n\nconst anexoArquivos = rawAnexos\n  .map(normalizeFile)\n  .filter(function(f) { return f && (f.id || f.permalink); })\n  .slice(0, 10);\n\nconst anexoIds = anexoArquivos\n  .map(function(f) { return f.permalink || f.id; })\n  .filter(Boolean);\n\nconst anexoTexto = anexoArquivos.map(function(f, i) {\n  const link = f.permalink || '';\n  const label = f.name ? f.name : ('arquivo ' + (i + 1));\n  if (link) return '• <' + link + '|Ver ' + label + '>';\n  return '• Arquivo `' + f.id + '`';\n}).join('\\n');\n\nconst solicitanteId = payload.user?.id || '';\nconst solicitanteNome = payload.user?.name || '';\nconst timestamp = new Date().toLocaleString('pt-BR', {timeZone: 'America/Sao_Paulo', day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit', second:'2-digit'});\nconst protocolo = 'PAG-' + Date.now();\n\n// ── Helpers ──────────────────────────────────────────────\nfunction onlyDigits(s) { return String(s || '').replace(/\\D/g, ''); }\nfunction cleanDoc(s) { return String(s || '').replace(/[\\.\\-\\/\\s]/g, ''); }\n\nfunction validarCNPJ(cnpj) {\n  const c = cleanDoc(cnpj);\n  if (c.length !== 14 || /^(\\d)\\1{13}$/.test(c)) return false;\n  let sum = 0, len = c.length - 2, nums = c.split('').map(Number);\n  let pos = len - 7;\n  for (let i = len; i >= 1; i--) { sum += nums[len - i] * pos--; if (pos < 2) pos = 9; }\n  let result = sum % 11 < 2 ? 0 : 11 - (sum % 11);\n  if (result !== nums[len]) return false;\n  sum = 0; len = c.length - 1; pos = len - 7;\n  for (let i = len; i >= 1; i--) { sum += nums[len - i] * pos--; if (pos < 2) pos = 9; }\n  result = sum % 11 < 2 ? 0 : 11 - (sum % 11);\n  return result === nums[len];\n}\n\nfunction validarCPF(cpf) {\n  const c = cleanDoc(cpf);\n  if (c.length !== 11 || /^(\\d)\\1{10}$/.test(c)) return false;\n  let sum = 0;\n  for (let i = 0; i < 9; i++) sum += parseInt(c[i], 10) * (10 - i);\n  let r = (sum * 10) % 11; if (r === 10 || r === 11) r = 0;\n  if (r !== parseInt(c[9], 10)) return false;\n  sum = 0;\n  for (let i = 0; i < 10; i++) sum += parseInt(c[i], 10) * (11 - i);\n  r = (sum * 10) % 11; if (r === 10 || r === 11) r = 0;\n  return r === parseInt(c[10], 10);\n}\n\nfunction validarBoleto(codigo) {\n  const c = String(codigo || '').replace(/[\\s\\.\\-]/g, '');\n  return /^\\d{44,48}$/.test(c);\n}\n\nfunction formatarPixCelular(chave) {\n  // Sem validação/normalização de telefone em modo teste.\n  // Mantém exatamente o que o solicitante digitou.\n  return String(chave || '').trim();\n}\n\nfunction normalizarChavePix(tipo, chave) {\n  const c = String(chave || '').trim();\n  if (tipo === 'Celular' || tipo === 'Telefone') return formatarPixCelular(c);\n  if (tipo === 'CPF' || tipo === 'CNPJ') return onlyDigits(c);\n  if (tipo === 'Email') return c.toLowerCase();\n  return c;\n}\n\nfunction validarChavePix(tipo, chave) {\n  const c = String(chave || '').trim();\n  if (!tipo) return false;\n  if (!c) return false;\n  if (tipo === 'CPF') return validarCPF(c);\n  if (tipo === 'CNPJ') return validarCNPJ(c);\n  if (tipo === 'Email') return /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(c);\n  if (tipo === 'Celular' || tipo === 'Telefone') return c.length > 0;\n  if (tipo === 'Aleatoria') return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(c);\n  return c.length > 0;\n}\n\n// ── Validações ───────────────────────────────────────────\nconst errors = {};\n\nif (cnpjCpf) {\n  const d = cleanDoc(cnpjCpf);\n  if (d.length === 11) {\n    if (!validarCPF(cnpjCpf)) errors['cnpj_cpf'] = '❌ CPF inválido. Verifique os dígitos informados.';\n  } else if (d.length === 14) {\n    if (!validarCNPJ(cnpjCpf)) errors['cnpj_cpf'] = '❌ CNPJ inválido. Verifique os dígitos informados.';\n  } else {\n    errors['cnpj_cpf'] = '❌ CNPJ/CPF deve ter 11 dígitos (CPF) ou 14 dígitos (CNPJ).';\n  }\n}\n\nif (formaPagamento === 'Boleto') {\n  if (!codigoBoleto) {\n    errors['codigo_boleto'] = '❌ Informe o código de barras do boleto.';\n  } else if (!validarBoleto(codigoBoleto)) {\n    errors['codigo_boleto'] = '❌ Código de barras inválido. Use 44 a 48 dígitos numéricos.';\n  }\n}\n\nif (formaPagamento === 'Pix') {\n  if (!tipoChavePix) {\n    errors['tipo_chave_pix'] = '❌ Selecione o tipo da chave PIX.';\n  }\n  if (!chavePixOriginal) {\n    errors['chave_pix'] = '❌ Informe a chave PIX.';\n  } else if (!validarChavePix(tipoChavePix, chavePixOriginal)) {\n    const msgs = {\n      CPF: '❌ CPF da chave PIX inválido.',\n      CNPJ: '❌ CNPJ da chave PIX inválido.',\n      Email: '❌ E-mail da chave PIX inválido.',\n      Celular: '❌ Informe a chave PIX de celular.',\n      Telefone: '❌ Informe a chave PIX de telefone.',\n      Aleatoria: '❌ Chave aleatória PIX inválida. Deve ser um UUID válido.'\n    };\n    errors['chave_pix'] = msgs[tipoChavePix] || '❌ Chave PIX inválida para o tipo selecionado.';\n  }\n}\n\nif (formaPagamento === 'Transferencia' && !dadosBancarios) {\n  errors['dados_bancarios'] = '❌ Informe os dados bancários para transferência.';\n}\n\nif (anexoArquivos.length === 0) {\n  errors['anexo'] = '❌ Inclua pelo menos um anexo para enviar a solicitação.';\n}\n\nconst hasErrors = Object.keys(errors).length > 0;\nconst chavePix = normalizarChavePix(tipoChavePix, chavePixOriginal);\n\nreturn [{\n  json: {\n    _hasErrors: hasErrors,\n    _validationErrors: errors,\n    protocolo: hasErrors ? '' : protocolo,\n    razaoSocial,\n    cnpjCpf,\n    valor,\n    vencimento,\n    formaPagamento,\n    codigoBoleto,\n    tipoChavePix,\n    chavePix,\n    chavePixOriginal,\n    dadosBancarios,\n    observacoes,\n    aprovadorId,\n    aprovadorOriginalId,\n    anexoIds,\n    anexoArquivos,\n    anexoTexto,\n    solicitanteId,\n    solicitanteNome,\n    timestamp,\n    status: hasErrors ? 'INVALIDO' : 'PENDENTE'\n  }\n}];"
+      },
+      "id": "a03ff69e-af55-51e2-973c-b172bf02e9a2",
+      "name": "Extrair Dados do Formulário",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -240,
+        4640
+      ],
+      "notesInFlow": true,
+      "notes": "Além das validações por forma de pagamento, exige pelo menos um anexo. Solicitações inválidas não seguem para planilha ou aprovação."
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "route-concluir",
+                    "leftValue": "={{ $json.actionId }}",
+                    "rightValue": "concluir_pagamento",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "route-form-type",
+                    "leftValue": "={{ $json.type }}",
+                    "rightValue": "view_submission",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  },
+                  {
+                    "id": "route-form-callback",
+                    "leftValue": "={{ $json.callbackId }}",
+                    "rightValue": "pagamento_modal",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "route-reject-type",
+                    "leftValue": "={{ $json.type }}",
+                    "rightValue": "block_actions",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  },
+                  {
+                    "id": "route-reject-action",
+                    "leftValue": "={{ $json.actionId }}",
+                    "rightValue": "negar_pagamento",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "route-approve-type",
+                    "leftValue": "={{ $json.type }}",
+                    "rightValue": "block_actions",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  },
+                  {
+                    "id": "route-approve-action",
+                    "leftValue": "={{ $json.actionId }}",
+                    "rightValue": "aprovar_pagamento",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "01c5fdf0-01d8-51fe-b696-66448115e6be",
+      "name": "Roteador de Ações",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        -464,
+        4864
+      ],
+      "notesInFlow": true,
+      "notes": "Roteia conclusão, formulário, reprovação com validação de comentário e aprovação."
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.item.json.body || {};\nlet raw = body.payload;\nlet payload = raw;\n\nif (typeof raw === 'string') {\n  try {\n    payload = JSON.parse(raw);\n  } catch (e) {\n    payload = {};\n  }\n}\n\npayload = payload || {};\n\nconst headers = $input.item.json.headers || {};\nconst normalizedHeaders = {};\nfor (const k of Object.keys(headers)) {\n  normalizedHeaders[String(k).toLowerCase()] = headers[k];\n}\n\nconst retryNum = normalizedHeaders['x-slack-retry-num'];\nconst retryReason = normalizedHeaders['x-slack-retry-reason'] || '';\nconst isRetry =\n  retryNum !== undefined &&\n  retryNum !== null &&\n  String(retryNum).trim() !== '';\n\nconst stateValues =\n  payload.state?.values ||\n  payload.view?.state?.values ||\n  {};\n\nconst motivoNegacao = String(\n  stateValues\n    ?.motivo_negacao_msg\n    ?.motivo_negacao_input\n    ?.value || ''\n).trim();\n\nreturn [{\n  json: {\n    type: payload.type || '',\n    trigger_id: payload.trigger_id || '',\n    response_url: payload.response_url || '',\n    channelId:\n      payload.channel?.id ||\n      payload.container?.channel_id ||\n      '',\n    userId: payload.user?.id || '',\n    userName:\n      payload.user?.real_name ||\n      payload.user?.name ||\n      payload.user?.username ||\n      '',\n    actionId: payload.actions?.[0]?.action_id || '',\n    actionValue: payload.actions?.[0]?.value || '',\n    motivoNegacao,\n    viewState: stateValues,\n    callbackId: payload.view?.callback_id || '',\n    payload,\n    _slackRetry: isRetry,\n    _slackRetryNum: retryNum || '',\n    _slackRetryReason: retryReason || ''\n  }\n}];"
+      },
+      "id": "ae105e02-8e24-5f10-b56b-c3eec2b8223e",
+      "name": "Identificar Tipo de Interação",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -912,
+        4896
+      ],
+      "notesInFlow": true,
+      "notes": "Lê o motivo diretamente de payload.state.values quando o aprovador clica em Reprovar."
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "slack-interactivity",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "7768d5cc-91c2-5539-846d-a0324f9e7e02",
+      "name": "Webhook - Interatividade (formulário + botões)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        -1360,
+        4896
+      ],
+      "notesInFlow": true,
+      "notes": "Usa responseNode para responder explicitamente ao Slack por meio do nó ACK Interatividade Slack. Isso evita a mensagem de erro ao enviar o formulário."
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "slack-slash-pagamento",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "90dd654d-6f7d-5e65-9a98-dacd5f076a56",
+      "name": "Webhook - Slash Command /pagamento",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        320,
+        3824
+      ],
+      "notesInFlow": true,
+      "notes": "Ajustado para responseMode=onReceived: o Slack recebe ACK 200 imediatamente ao receber o webhook, evitando timeout de 3 segundos. O processamento continua em paralelo.\nACK imediato sem corpo para o Slack. Evita timeout de 3s e impede a mensagem visível {\"message\":\"Workflow was started\"}."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://slack.com/api/chat.postMessage",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "slackApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n(function() {\n  const d = $('Mesclar Decisão + Dados (Aprovado)').item.json;\n  const dm = $('Abrir DM Contas a Pagar').item.json;\n  const contasPagarId = 'UDEMO000002';\n  const channelId = (dm && dm.ok && dm.channel && dm.channel.id)\n    ? dm.channel.id\n    : contasPagarId;\n  const payBlocks = (function() {\n    if (d.formaPagamento === 'Boleto') return { type: 'section', fields: [{ type: 'mrkdwn', text: '*💳 Forma de Pagamento*\\nBoleto' }, { type: 'mrkdwn', text: '*🔢 Código de Barras*\\n`' + (d.codigoBoleto || '—') + '`' }] };\n    if (d.formaPagamento === 'Pix') return { type: 'section', fields: [{ type: 'mrkdwn', text: '*💳 Forma de Pagamento*\\nPix' }, { type: 'mrkdwn', text: '*🔑 Tipo de Chave PIX*\\n' + (d.tipoChavePix || '—') }, { type: 'mrkdwn', text: '*🗝️ Chave PIX*\\n`' + (d.chavePix || '—') + '`' }] };\n    if (d.formaPagamento === 'Transferencia') return { type: 'section', fields: [{ type: 'mrkdwn', text: '*💳 Forma de Pagamento*\\nTransferência Bancária' }, { type: 'mrkdwn', text: '*🏦 Dados Bancários*\\n' + (d.dadosBancarios || '—') }] };\n    return { type: 'section', fields: [{ type: 'mrkdwn', text: '*💳 Forma de Pagamento*\\n' + (d.formaPagamento || '—') }] };\n  })();\n  return {\n    channel: channelId,\n    text: '📅 Pagamento aprovado para programar: ' + d.razaoSocial + ' · R$ ' + d.valor,\n    blocks: [\n      { type: 'section', text: { type: 'mrkdwn', text: '📅 *Pagamento Aprovado — Programação Necessária*\\nAprovado por <@' + d.gestorId + '>. Programe o pagamento abaixo.' } },\n      { type: 'divider' },\n      { type: 'section', fields: [\n        { type: 'mrkdwn', text: '*🏢 Fornecedor*\\n' + (d.razaoSocial || '—') },\n        { type: 'mrkdwn', text: '*🪪 CNPJ / CPF*\\n`' + (d.cnpjCpf || '—') + '`' },\n        { type: 'mrkdwn', text: '*💰 Valor*\\n*R$ ' + (d.valor || '—') + '*' },\n        { type: 'mrkdwn', text: '*📅 Vencimento (D-1)*\\n' + (d.vencimento || '—') }\n      ]},\n      payBlocks,\n      d.observacoes ? { type: 'rich_text', elements: [{ type: 'rich_text_quote', elements: [{ type: 'text', text: 'Obs: ' + d.observacoes }] }] } : null,\n      (d.anexoTexto && d.anexoTexto.trim() !== '') ? { type: 'section', text: { type: 'mrkdwn', text: '*📎 Anexo(s)*\\n' + d.anexoTexto } } : null,\n      { type: 'context', elements: [{ type: 'mrkdwn', text: '📋 Protocolo `' + d.protocolo + '` · Aprovado em ' + new Date(d.dataDecisao).toLocaleString('pt-BR', {timeZone: 'America/Sao_Paulo'}) + ' · Solicitante: <@' + d.solicitanteId + '>' }] },\n      { type: 'actions', elements: [\n        { type: 'button', text: { type: 'plain_text', text: '✅ Marcar como Programado' }, style: 'primary', value: d.protocolo, action_id: 'concluir_pagamento', confirm: { title: { type: 'plain_text', text: 'Confirmar programação' }, text: { type: 'mrkdwn', text: 'Confirmar que o pagamento de *R$ ' + d.valor + '* para *' + d.razaoSocial + '* foi programado?' }, confirm: { type: 'plain_text', text: 'Sim, programado' }, deny: { type: 'plain_text', text: 'Cancelar' } } }\n      ]}\n    ].filter(Boolean)\n  };\n})()\n}}",
+        "options": {}
+      },
+      "id": "25ee620f-ffd9-58ad-a837-03feb4407388",
+      "name": "Aprovação Contas a Pagar",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        1776,
+        4368
+      ],
+      "notesInFlow": true,
+      "notes": "Envia a solicitação aprovada para Aprovador Exemplo B, backup da programação, com o botão Marcar como Programado."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://slack.com/api/chat.postMessage",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "slackApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n(function() {\n  const d = $json;\n  const aprovadorId = d.aprovadorId || d.aprovadorOriginalId || '';\n  const payBlocks = (function() {\n    if (d.formaPagamento === 'Boleto') return {\n      type: 'section',\n      fields: [\n        { type: 'mrkdwn', text: '*💳 Forma de Pagamento*\\nBoleto' },\n        { type: 'mrkdwn', text: '*🔢 Código de Barras*\\n`' + (d.codigoBoleto || '—') + '`' }\n      ]\n    };\n    if (d.formaPagamento === 'Pix') return {\n      type: 'section',\n      fields: [\n        { type: 'mrkdwn', text: '*💳 Forma de Pagamento*\\nPix' },\n        { type: 'mrkdwn', text: '*🔑 Tipo de Chave PIX*\\n' + (d.tipoChavePix || '—') },\n        { type: 'mrkdwn', text: '*🗝️ Chave PIX*\\n`' + (d.chavePix || '—') + '`' }\n      ]\n    };\n    if (d.formaPagamento === 'Transferencia') return {\n      type: 'section',\n      fields: [\n        { type: 'mrkdwn', text: '*💳 Forma de Pagamento*\\nTransferência Bancária' },\n        { type: 'mrkdwn', text: '*🏦 Dados Bancários*\\n' + (d.dadosBancarios || '—') }\n      ]\n    };\n    return { type: 'section', fields: [{ type: 'mrkdwn', text: '*💳 Forma de Pagamento*\\n' + (d.formaPagamento || '—') }] };\n  })();\n  return {\n    channel: aprovadorId,\n    text: '🔔 Aprovação de Pagamento Necessária: ' + d.razaoSocial + ' · R$ ' + d.valor,\n    blocks: [\n      { type: 'section', text: { type: 'mrkdwn', text: '🔔 *Aprovação de Pagamento Necessária*\\n<@' + d.solicitanteId + '> enviou uma nova solicitação de pagamento que requer aprovação.' } },\n      { type: 'context', elements: [{ type: 'mrkdwn', text: '⚠️ *Vence em ' + (d.vencimento || '—') + '* · ' + (d.formaPagamento || '—') }] },\n      { type: 'divider' },\n      { type: 'section', fields: [\n        { type: 'mrkdwn', text: '*🏢 Fornecedor*\\n' + (d.razaoSocial || '—') },\n        { type: 'mrkdwn', text: '*🪪 CNPJ / CPF*\\n`' + (d.cnpjCpf || '—') + '`' },\n        { type: 'mrkdwn', text: '*💰 Valor*\\n*R$ ' + (d.valor || '—') + '*' },\n        { type: 'mrkdwn', text: '*📅 Vencimento (D-1)*\\n' + (d.vencimento || '—') }\n      ]},\n      payBlocks,\n      d.observacoes ? { type: 'rich_text', elements: [{ type: 'rich_text_quote', elements: [{ type: 'text', text: 'Obs: ' + d.observacoes }] }] } : null,\n      (d.anexoTexto && d.anexoTexto.trim() !== '') ? { type: 'section', text: { type: 'mrkdwn', text: '*📎 Anexo(s)*\\n' + d.anexoTexto } } : null,\n      { type: 'context', elements: [{ type: 'mrkdwn', text: '📋 Protocolo `' + d.protocolo + '` · Solicitado em ' + (d.timestamp || '—') }] },\n      {\n        type: 'input',\n        block_id: 'motivo_negacao_msg',\n        optional: true,\n        label: {\n          type: 'plain_text',\n          text: 'Motivo da reprovação — obrigatório somente ao reprovar'\n        },\n        hint: {\n          type: 'plain_text',\n          text: 'Para aprovar, deixe este campo vazio. Para reprovar, explique o que precisa ser corrigido.'\n        },\n        element: {\n          type: 'plain_text_input',\n          action_id: 'motivo_negacao_input',\n          multiline: true,\n          min_length: 3,\n          max_length: 1000,\n          placeholder: {\n            type: 'plain_text',\n            text: 'Ex.: documento incorreto, valor divergente ou informação faltante.'\n          }\n        }\n      },\n      { type: 'actions', block_id: 'acoes_aprovacao', elements: [\n        { type: 'button', text: { type: 'plain_text', text: '✅ Aprovar Pagamento' }, style: 'primary', value: d.protocolo, action_id: 'aprovar_pagamento', confirm: { title: { type: 'plain_text', text: 'Confirmar aprovação' }, text: { type: 'mrkdwn', text: 'Aprovar pagamento de *R$ ' + d.valor + '* para *' + d.razaoSocial + '*?' }, confirm: { type: 'plain_text', text: 'Sim, aprovar' }, deny: { type: 'plain_text', text: 'Cancelar' } } },\n        { type: 'button', text: { type: 'plain_text', text: '❌ Reprovar' }, style: 'danger', value: d.protocolo, action_id: 'negar_pagamento' }\n      ]}\n    ].filter(Boolean)\n  };\n})()\n}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        432,
+        4448
+      ],
+      "id": "71f4eddb-0f8a-5fe8-9d99-e84ac26e6f51",
+      "name": "Aprovação Financeiro",
+      "notesInFlow": true,
+      "onError": "continueRegularOutput",
+      "notes": "O motivo da reprovação é digitado diretamente na mensagem. Isso elimina o uso de views.open e do trigger_id de 3 segundos."
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "CONFIGURE_SPREADSHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "CONFIGURE_MAIN_SHEET_ID",
+          "mode": "id"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "ID",
+              "lookupValue": "={{ $json.protocolo }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "7a501da7-fb7e-52f9-bd28-fffc3727e996",
+      "name": "Buscar Status Atual no Sheets (Decisão)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        208,
+        4944
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const decisao = $('Extrair Decisão (Aprovado/Negado)').item.json;\nconst row = $input.item.json || {};\n\nconst aprovacaoAtual = String(row['Aprovação'] || '').trim().toUpperCase();\nconst pagamentoAtual = String(row['Pagamento'] || '').trim().toUpperCase();\nconst protocoloPlanilha = String(row['ID'] || '').trim();\n\nlet permitido = true;\nlet motivo = '';\n\nif (!protocoloPlanilha) {\n  permitido = false;\n  motivo = 'Solicitação não encontrada na planilha.';\n}\n\nif (['APROVADO', 'NEGADO'].includes(decisao.decisao) && aprovacaoAtual) {\n  permitido = false;\n  motivo = `Esta solicitação já foi decidida como ${aprovacaoAtual}.`;\n}\n\nif (decisao.decisao === 'PROGRAMADO' && aprovacaoAtual !== 'APROVADO') {\n  permitido = false;\n  motivo = 'Esta solicitação ainda não foi aprovada, então não pode ser marcada como PROGRAMADO.';\n}\n\nif (decisao.decisao === 'PROGRAMADO' && pagamentoAtual === 'PROGRAMADO') {\n  permitido = false;\n  motivo = 'Este pagamento já foi marcado como PROGRAMADO.';\n}\n\nreturn [{\n  json: {\n    ...row,\n    ...decisao,\n    _decisaoPermitida: permitido,\n    _motivoBloqueio: motivo,\n    aprovacaoAtual,\n    pagamentoAtual\n  }\n}];"
+      },
+      "id": "d7be6ccc-9625-59de-b857-e3ed9860f87a",
+      "name": "Validar Decisão Única",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        432,
+        4944
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json._decisaoPermitida }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "9d2055a8-df55-5eb3-afe6-27168d26fa52",
+      "name": "Decisão Permitida?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        656,
+        4944
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.responseUrl }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n{\n  \"replace_original\": true,\n  \"text\": \"⚠️ Ação bloqueada — \" + $json.protocolo,\n  \"blocks\": [\n    {\n      \"type\": \"section\",\n      \"text\": {\n        \"type\": \"mrkdwn\",\n        \"text\": \"⚠️ *Ação bloqueada*\\n\" + ($json._motivoBloqueio || \"Esta solicitação não aceita nova decisão.\")\n      }\n    },\n    {\n      \"type\": \"context\",\n      \"elements\": [\n        { \"type\": \"mrkdwn\", \"text\": \"📋 Protocolo `\" + $json.protocolo + \"` · Nenhuma alteração foi feita na planilha.\" }\n      ]\n    }\n  ]\n}\n}}",
+        "options": {}
+      },
+      "id": "05eb25d4-f2b6-5b50-add4-317afa9a24aa",
+      "name": "Responder Decisão Bloqueada",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        880,
+        5040
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.responseUrl }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n(function() {\n  const d = $json;\n  const aprovado = d.decisao === 'APROVADO';\n  const payBlocks = (function() {\n    if (d.formaPagamento === 'Boleto') return { type: 'section', fields: [{ type: 'mrkdwn', text: '*💳 Forma de Pagamento*\\nBoleto' }, { type: 'mrkdwn', text: '*🔢 Código de Barras*\\n`' + (d.codigoBoleto || '—') + '`' }] };\n    if (d.formaPagamento === 'Pix') return { type: 'section', fields: [{ type: 'mrkdwn', text: '*💳 Forma de Pagamento*\\nPix' }, { type: 'mrkdwn', text: '*🔑 Tipo de Chave PIX*\\n' + (d.tipoChavePix || '—') }, { type: 'mrkdwn', text: '*🗝️ Chave PIX*\\n`' + (d.chavePix || '—') + '`' }] };\n    if (d.formaPagamento === 'Transferencia') return { type: 'section', fields: [{ type: 'mrkdwn', text: '*💳 Forma de Pagamento*\\nTransferência Bancária' }, { type: 'mrkdwn', text: '*🏦 Dados Bancários*\\n' + (d.dadosBancarios || '—') }] };\n    return { type: 'section', fields: [{ type: 'mrkdwn', text: '*💳 Forma de Pagamento*\\n' + (d.formaPagamento || '—') }] };\n  })();\n  return {\n    replace_original: true,\n    text: (aprovado ? '✅ Solicitação aprovada — ' : '❌ Solicitação reprovada — ') + d.protocolo,\n    blocks: [\n      { type: 'section', text: { type: 'mrkdwn', text: (aprovado ? '✅ *Solicitação aprovada*' : '❌ *Solicitação reprovada*') + '\\nDecisão registrada por <@' + d.gestorId + '> em ' + new Date(d.dataDecisao).toLocaleString('pt-BR', {timeZone: 'America/Sao_Paulo'}) + '.' } },\n      { type: 'divider' },\n      { type: 'section', fields: [\n        { type: 'mrkdwn', text: '*🏢 Fornecedor*\\n' + (d.razaoSocial || '—') },\n        { type: 'mrkdwn', text: '*🪪 CNPJ / CPF*\\n`' + (d.cnpjCpf || '—') + '`' },\n        { type: 'mrkdwn', text: '*💰 Valor*\\nR$ ' + (d.valor || '—') },\n        { type: 'mrkdwn', text: '*📅 Vencimento*\\n' + (d.vencimento || '—') },\n        { type: 'mrkdwn', text: '*👤 Solicitante*\\n' + (d.solicitanteId ? '<@' + d.solicitanteId + '>' : (d.solicitanteNome || '—')) },\n        { type: 'mrkdwn', text: '*📌 Status*\\n' + (aprovado ? 'APROVADO' : 'NEGADO') }\n      ]},\n      payBlocks,\n      (!aprovado && d.motivoNegacao) ? { type: 'section', text: { type: 'mrkdwn', text: '*💬 Motivo da reprovação*\\n' + d.motivoNegacao } } : null,\n      d.observacoes ? { type: 'rich_text', elements: [{ type: 'rich_text_quote', elements: [{ type: 'text', text: 'Obs: ' + d.observacoes }] }] } : null,\n      (d.anexoTexto && d.anexoTexto.trim() !== '') ? { type: 'section', text: { type: 'mrkdwn', text: '*📎 Anexo(s)*\\n' + d.anexoTexto } } : null,\n      { type: 'context', elements: [{ type: 'mrkdwn', text: '📋 Protocolo `' + d.protocolo + '` · Histórico mantido · Botões removidos para evitar nova aprovação/reprovação.' }] }\n    ].filter(Boolean)\n  };\n})()\n}}",
+        "options": {}
+      },
+      "id": "bf3b0b88-8f17-57fc-8c9d-4bde56a9b3f6",
+      "name": "Responder Gestor - Decisão Registrada",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        1776,
+        4656
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const d = $('Extrair Dados do Formulário').item.json;\nconst arquivos = (Array.isArray(d.anexoArquivos) ? d.anexoArquivos : []).slice(0, 10);\n\nfunction pickFileId(fileObj) {\n  if (!fileObj) return '';\n  return fileObj.id || fileObj.file_id || '';\n}\n\nfunction pickNativePermalink(fileObj) {\n  if (!fileObj) return '';\n  // Usar o permalink nativo do Slack: https://workspace-exemplo.slack.com/files/...\n  // Não usar permalink_public / slack-files.com neste fluxo.\n  return fileObj.permalink || '';\n}\n\nconst anexosFinais = arquivos.map(function(f) {\n  const link = pickNativePermalink(f);\n  const id = pickFileId(f);\n  return link || id;\n}).filter(Boolean);\n\nconst anexoTexto = arquivos.map(function(f, i) {\n  const link = pickNativePermalink(f);\n  const id = pickFileId(f);\n  const label = f.name || f.title || f.filename || ('arquivo ' + (i + 1));\n\n  if (link) return '• <' + link + '|Ver ' + label + '>';\n  return '• Arquivo `' + (id || ('anexo ' + (i + 1))) + '`';\n}).filter(Boolean).join('\\n');\n\nreturn [{\n  json: {\n    ...d,\n    aprovadorOriginalId: d.aprovadorOriginalId || '',\n    aprovadorId: d.aprovadorId || d.aprovadorOriginalId || '',\n    anexoIds: anexosFinais,\n    anexoTexto,\n    anexoPublicoGerado: false,\n    anexoPublicoErros: '',\n    totalAnexos: arquivos.length\n  }\n}];"
+      },
+      "id": "d6390c04-21ec-5af6-8a2c-2d7ccbe57711",
+      "name": "Consolidar Anexos Slack",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        208,
+        4544
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "slack-retry-guard",
+              "leftValue": "={{ $json._slackRetry }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "aa456791-1620-55bb-83f0-f6ff716523ee",
+      "name": "É Retry Slack?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -688,
+        4896
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "noData",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "015894d2-bc23-52cc-927c-a5b85ff6a2fa",
+      "name": "ACK Interatividade Slack",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        -1136,
+        4896
+      ],
+      "notesInFlow": true,
+      "notes": "Primeiro nó após o webhook. Responde HTTP 200 sem corpo antes de validações, anexos, planilha ou mensagens, evitando o timeout do modal."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://slack.com/api/conversations.open",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "slackApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n{\n  \"users\": \"UDEMO000002\",\n  \"return_im\": true\n}\n}}",
+        "options": {}
+      },
+      "id": "1b9679bf-750d-5cf3-bc57-e441b08ff399",
+      "name": "Abrir DM Contas a Pagar",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1552,
+        4368
+      ],
+      "notesInFlow": true,
+      "notes": "Abre ou recupera a DM individual de Aprovador Exemplo B (UDEMO000002), backup da etapa de programação."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "motivo-negacao-minimo",
+              "leftValue": "={{ String($json.motivoNegacao || '').trim().length >= 3 }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "b243ca25-8f54-5a83-8c60-72bdfbc02ce2",
+      "name": "Motivo da Reprovação Preenchido?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -240,
+        5120
+      ],
+      "notesInFlow": true,
+      "notes": "Impede a reprovação quando o comentário tiver menos de 3 caracteres."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.response_url }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n{\n  \"response_type\": \"ephemeral\",\n  \"replace_original\": false,\n  \"text\": \"⚠️ Para reprovar, preencha o campo *Motivo da reprovação* na mensagem e clique novamente em *Reprovar*.\"\n}\n}}",
+        "options": {}
+      },
+      "id": "52bd2fe5-0646-5c5e-84a5-579412864d2a",
+      "name": "Avisar Aprovador - Motivo Obrigatório",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -16,
+        5168
+      ],
+      "notesInFlow": true,
+      "notes": "Avisa o aprovador e mantém a solicitação pendente quando o motivo não foi preenchido."
+    },
+    {
+      "parameters": {
+        "operation": "delete",
+        "documentId": {
+          "__rl": true,
+          "value": "CONFIGURE_SPREADSHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "CONFIGURE_MAIN_SHEET_ID",
+          "mode": "id"
+        },
+        "startIndex": "={{ $('Preparar dados para Sheets (Negado)').item.json.rowNumber }}"
+      },
+      "id": "785037be-7b9a-5a51-89ba-a76b6941231a",
+      "name": "Remover da Aba Principal (Negado)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        2224,
+        5616
+      ],
+      "notesInFlow": true,
+      "notes": "Exclui a linha da aba principal somente depois que o append em Negados foi concluído com sucesso."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://slack.com/api/conversations.open",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "slackApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n{\n  \"users\": \"UDEMO000004\",\n  \"return_im\": true\n}\n}}",
+        "options": {}
+      },
+      "id": "79237a64-8548-5c7c-96cf-eadb9f6b80cf",
+      "name": "Abrir DM Contas a Pagar - Responsável 2",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1552,
+        4176
+      ],
+      "notesInFlow": true,
+      "notes": "Abre ou recupera a DM individual de Financeiro Exemplo D (UDEMO000004), responsável principal pela programação."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://slack.com/api/chat.postMessage",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "slackApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n(function() {\n  const d = $('Mesclar Decisão + Dados (Aprovado)').item.json;\n  const dm = $('Abrir DM Contas a Pagar - Responsável 2').item.json;\n  const contasPagarId = 'UDEMO000004';\n  const channelId = (dm && dm.ok && dm.channel && dm.channel.id)\n    ? dm.channel.id\n    : contasPagarId;\n  const payBlocks = (function() {\n    if (d.formaPagamento === 'Boleto') return { type: 'section', fields: [{ type: 'mrkdwn', text: '*💳 Forma de Pagamento*\\nBoleto' }, { type: 'mrkdwn', text: '*🔢 Código de Barras*\\n`' + (d.codigoBoleto || '—') + '`' }] };\n    if (d.formaPagamento === 'Pix') return { type: 'section', fields: [{ type: 'mrkdwn', text: '*💳 Forma de Pagamento*\\nPix' }, { type: 'mrkdwn', text: '*🔑 Tipo de Chave PIX*\\n' + (d.tipoChavePix || '—') }, { type: 'mrkdwn', text: '*🗝️ Chave PIX*\\n`' + (d.chavePix || '—') + '`' }] };\n    if (d.formaPagamento === 'Transferencia') return { type: 'section', fields: [{ type: 'mrkdwn', text: '*💳 Forma de Pagamento*\\nTransferência Bancária' }, { type: 'mrkdwn', text: '*🏦 Dados Bancários*\\n' + (d.dadosBancarios || '—') }] };\n    return { type: 'section', fields: [{ type: 'mrkdwn', text: '*💳 Forma de Pagamento*\\n' + (d.formaPagamento || '—') }] };\n  })();\n  return {\n    channel: channelId,\n    text: '📅 Pagamento aprovado para programar: ' + d.razaoSocial + ' · R$ ' + d.valor,\n    blocks: [\n      { type: 'section', text: { type: 'mrkdwn', text: '📅 *Pagamento Aprovado — Programação Necessária*\\nAprovado por <@' + d.gestorId + '>. Programe o pagamento abaixo.' } },\n      { type: 'divider' },\n      { type: 'section', fields: [\n        { type: 'mrkdwn', text: '*🏢 Fornecedor*\\n' + (d.razaoSocial || '—') },\n        { type: 'mrkdwn', text: '*🪪 CNPJ / CPF*\\n`' + (d.cnpjCpf || '—') + '`' },\n        { type: 'mrkdwn', text: '*💰 Valor*\\n*R$ ' + (d.valor || '—') + '*' },\n        { type: 'mrkdwn', text: '*📅 Vencimento (D-1)*\\n' + (d.vencimento || '—') }\n      ]},\n      payBlocks,\n      d.observacoes ? { type: 'rich_text', elements: [{ type: 'rich_text_quote', elements: [{ type: 'text', text: 'Obs: ' + d.observacoes }] }] } : null,\n      (d.anexoTexto && d.anexoTexto.trim() !== '') ? { type: 'section', text: { type: 'mrkdwn', text: '*📎 Anexo(s)*\\n' + d.anexoTexto } } : null,\n      { type: 'context', elements: [{ type: 'mrkdwn', text: '📋 Protocolo `' + d.protocolo + '` · Aprovado em ' + new Date(d.dataDecisao).toLocaleString('pt-BR', {timeZone: 'America/Sao_Paulo'}) + ' · Solicitante: <@' + d.solicitanteId + '>' }] },\n      { type: 'actions', elements: [\n        { type: 'button', text: { type: 'plain_text', text: '✅ Marcar como Programado' }, style: 'primary', value: d.protocolo, action_id: 'concluir_pagamento', confirm: { title: { type: 'plain_text', text: 'Confirmar programação' }, text: { type: 'mrkdwn', text: 'Confirmar que o pagamento de *R$ ' + d.valor + '* para *' + d.razaoSocial + '* foi programado?' }, confirm: { type: 'plain_text', text: 'Sim, programado' }, deny: { type: 'plain_text', text: 'Cancelar' } } }\n      ]}\n    ].filter(Boolean)\n  };\n})()\n}}",
+        "options": {}
+      },
+      "id": "068a710e-8985-5263-b6c7-64ccc0551a89",
+      "name": "Aprovação Contas a Pagar - Responsável 2",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        1776,
+        4176
+      ],
+      "notesInFlow": true,
+      "notes": "Envia a solicitação aprovada para Financeiro Exemplo D, responsável principal pela programação, com o botão Marcar como Programado."
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Validação OK?": {
+      "main": [
+        [
+          {
+            "node": "Consolidar Anexos Slack",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Notificar Solicitante - Erro de Validação",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar Dados no Sheets (Negado)": {
+      "main": [
+        [
+          {
+            "node": "Mesclar Decisão + Dados (Negado)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar Dados no Sheets (Aprovado)": {
+      "main": [
+        [
+          {
+            "node": "Mesclar Decisão + Dados (Aprovado)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "É Conclusão?": {
+      "main": [
+        [
+          {
+            "node": "Buscar Dados no Sheets (Concluído)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Buscar Dados no Sheets (Negado)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mesclar Dados Conclusão": {
+      "main": [
+        [
+          {
+            "node": "Avisar Solicitante - Pago",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Responder Financeiro - Concluído",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Atualizar Sheets - Concluído",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar Dados no Sheets (Concluído)": {
+      "main": [
+        [
+          {
+            "node": "Mesclar Dados Conclusão",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mesclar Decisão + Dados (Negado)": {
+      "main": [
+        [
+          {
+            "node": "Preparar dados para Sheets (Negado)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Avisar Solicitante - Negado",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Responder Gestor - Decisão Registrada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mesclar Decisão + Dados (Aprovado)": {
+      "main": [
+        [
+          {
+            "node": "Preparar dados para Sheets (Aprovado)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Avisar Solicitante - Aprovado",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Abrir DM Contas a Pagar",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Responder Gestor - Decisão Registrada",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Abrir DM Contas a Pagar - Responsável 2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar dados iniciais para Sheets": {
+      "main": [
+        [
+          {
+            "node": "Gravar Formulário no Google Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar dados para Sheets (Negado)": {
+      "main": [
+        [
+          {
+            "node": "Gravar no Google Sheets (Negado)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar dados para Sheets (Aprovado)": {
+      "main": [
+        [
+          {
+            "node": "Gravar no Google Sheets (Aprovado)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aprovado ou Negado?": {
+      "main": [
+        [
+          {
+            "node": "Buscar Dados no Sheets (Aprovado)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "É Conclusão?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extrair Decisão (Aprovado/Negado)": {
+      "main": [
+        [
+          {
+            "node": "Buscar Status Atual no Sheets (Decisão)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extrair Dados do Formulário": {
+      "main": [
+        [
+          {
+            "node": "Validação OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Roteador de Ações": {
+      "main": [
+        [
+          {
+            "node": "Extrair Decisão (Aprovado/Negado)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Extrair Dados do Formulário",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Motivo da Reprovação Preenchido?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Extrair Decisão (Aprovado/Negado)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Identificar Tipo de Interação": {
+      "main": [
+        [
+          {
+            "node": "É Retry Slack?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook - Interatividade (formulário + botões)": {
+      "main": [
+        [
+          {
+            "node": "ACK Interatividade Slack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook - Slash Command /pagamento": {
+      "main": [
+        [
+          {
+            "node": "ACK Slash Command /pagamento",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar Status Atual no Sheets (Decisão)": {
+      "main": [
+        [
+          {
+            "node": "Validar Decisão Única",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validar Decisão Única": {
+      "main": [
+        [
+          {
+            "node": "Decisão Permitida?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Decisão Permitida?": {
+      "main": [
+        [
+          {
+            "node": "Aprovado ou Negado?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Responder Decisão Bloqueada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Consolidar Anexos Slack": {
+      "main": [
+        [
+          {
+            "node": "Notificar Solicitante - Formulário Enviado",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Preparar dados iniciais para Sheets",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Aprovação Financeiro",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "É Retry Slack?": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Roteador de Ações",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ACK Slash Command /pagamento": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Abrir DM Contas a Pagar": {
+      "main": [
+        [
+          {
+            "node": "Aprovação Contas a Pagar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Motivo da Reprovação Preenchido?": {
+      "main": [
+        [
+          {
+            "node": "Extrair Decisão (Aprovado/Negado)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Avisar Aprovador - Motivo Obrigatório",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ACK Interatividade Slack": {
+      "main": [
+        [
+          {
+            "node": "Identificar Tipo de Interação",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gravar no Google Sheets (Negado)": {
+      "main": [
+        [
+          {
+            "node": "Remover da Aba Principal (Negado)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Abrir DM Contas a Pagar - Responsável 2": {
+      "main": [
+        [
+          {
+            "node": "Aprovação Contas a Pagar - Responsável 2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "tags": []
+}

@@ -1,0 +1,11 @@
+private/
+config.local.json
+.env
+.env.*
+!.env.example
+.clasp.json
+.clasprc.json
+node_modules/
+*.log
+.DS_Store
+Thumbs.db

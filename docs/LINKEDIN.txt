@@ -1,0 +1,40 @@
+O Slack pode ser o lugar onde uma solicitação começa, é aprovada e tem seu andamento acompanhado.
+⠀
+Foi isso que construí neste projeto.
+⠀
+Este é o post 4 da série sobre automações que desenvolvi. 🚀
+⠀
+Antes, os pedidos de pagamento chegavam por mensagens soltas, sem uma padronização. As informações e os documentos ficavam espalhados nas conversas.
+⠀
+Organizei esse processo dentro do Slack, com n8n, Google Sheets e Apps Script:
+⠀
+📝 A pessoa digita /pagamento e preenche um formulário com os dados do fornecedor, valor, vencimento, forma de pagamento e anexos.
+⠀
+🤝 O responsável recebe a solicitação e pode aprovar ou reprovar pelo próprio Slack. Para reprovar, precisa informar o motivo.
+⠀
+📅 Quando aprovado, o pedido segue para Contas a Pagar, que registra quando o pagamento foi programado.
+⠀
+💬 O solicitante recebe as atualizações sem precisar procurar cada responsável para saber em que etapa o pedido está.
+⠀
+📂 Os dados ficam registrados na planilha, e um script organiza os anexos no Google Drive.
+⠀
+A automação cuida do encaminhamento e dos registros. A decisão continua com os responsáveis. O status de programado é informado pela equipe; o fluxo não executa o pagamento no banco.
+⠀
+O principal ganho foi transformar mensagens dispersas em um processo com informações padronizadas e acompanhamento das etapas.
+⠀
+Também preparei uma versão pública adaptada, com documentação, workflow e exemplos fictícios para mostrar como a solução funciona, preservando os dados internos.
+⠀
+Um aprendizado que levo: muitas oportunidades de automação estão nas ferramentas que o time já usa todos os dias. Um formulário, uma decisão e um retorno bem conectados podem resolver uma dor muito concreta.
+⠀
+Na sua empresa, as aprovações ainda se perdem em mensagens e e-mails? 👇🏿
+⠀
+🔗 Código e documentação:
+https://github.com/Hsilva68/aprovacao-pagamentos-slack
+⠀
+📂 Portfólio:
+https://automacoes.henrishowautomate.work/
+⠀
+🌐 Meu site:
+https://henriflowtecnologia.com.br/
+⠀
+#Automação #n8n #Slack #Processos #GoogleAppsScript #Tecnologia
